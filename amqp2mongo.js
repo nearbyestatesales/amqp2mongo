@@ -7,7 +7,8 @@ require('dotenv').config({path: __dirname + '/.env'});
 require('console-stamp')(console, 'yyyy-mm-dd HH:MM:ss.l');
 
 const amqpcb = require('amqplib/callback_api');
-var MongoClient = require('mongodb').MongoClient;
+var MongoClient = require('mongodb').MongoClient,
+    Server = require('mongodb').Server;
 
 //const SDC = require('statsd-client');
 //const statsd = new SDC({host: process.env.STATSD_HOST || 'localhost'});
@@ -46,23 +47,29 @@ function startConsumeMessage(db) {
       console.error(' [-] RabbitMQ connection failed: ' + err);
       process.exit(1);
     }
+
     console.info(' [2/2] Connected to RabbitMQ');
     console.info(' [+] All connetion established');
+
     conn.createConfirmChannel(function(err, ch) {
       if (err) {
         console.error(' [-] RabbitMQ Channel creation failed: ' + err);
         process.exit(1);
       }
+
       // Sweet spot ~ 25 - 50
       ch.prefetch(10);
       ch.assertQueue(process.env.RABBITMQ_CONS_QUEUE, {exclusive: false}, function(err, q) {
         console.info(' [*] Waiting for msgs. To exit press CTRL+C');
+        const routing = process.env.RABBITMQ_CONS_ROUTING_KEYS;
+        console.log(process.env.RABBITMQ_CONS_ROUTING_KEYS);
       
         process.env.RABBITMQ_CONS_ROUTING_KEYS.split(',').forEach(function(key) {
           ch.bindQueue(q.queue, process.env.RABBITMQ_CONS_EXCH, key);
         });
 
         ch.consume(q.queue, function(msg){
+          console.log(" [x] %s:'%s'", msg.fields.routingKey, msg.content.toString());
           let document = {
             insertDate: new Date(),
             queue: q.queue,
@@ -75,6 +82,8 @@ function startConsumeMessage(db) {
             document.messageDate = new Date(document.properties.headers.timestamp_in_ms);
           }
 
+          document.content = msg.content.toString('utf8');
+/* 
           try {
             document.content = JSON.parse(msg.content);
           } catch (e) {
@@ -84,6 +93,8 @@ function startConsumeMessage(db) {
               stack: e.stack,
             };
           }
+           */
+          //console.log(document);
           db.collection(process.env.MONGOCOLLECTION).insertOne(document);
           // console.dir(document);
           ch.ack(msg);
